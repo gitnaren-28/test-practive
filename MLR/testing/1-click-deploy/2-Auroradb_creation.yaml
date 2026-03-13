@@ -1,0 +1,138 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Clinical Query Aurora PostgreSQL Serverless v2 DB with private Lambda test connectivity.
+
+Parameters:
+  UseCaseName:
+    Type: String
+    Default: mlr
+    Description: "Name of the Use Case being developed"
+
+  VpcId:
+    Type: String
+    Default: vpc-088fec9fcdba72bd5
+    Description: "VPC ID"
+
+  PrivateSubnet1:
+    Type: String
+    Default: subnet-0d468bbb367b36084
+    Description: "Private Subnet 1"
+
+  PrivateSubnet2:
+    Type: String
+    Default: subnet-02ba9a51f43a2eb61
+    Description: "Private Subnet 2"
+
+
+Resources:
+  AuroraDBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Aurora PostgreSQL DB cluster
+      VpcId: !Ref VpcId  # Replace YourVPC with your VPC resource or ID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+          Description: Allow tcp access from anywhere to aurora DB
+          #SourceSecurityGroupId: !Ref YourApplicationSecurityGroup # Allow access from your application's security group
+      Tags:
+        - Key: Name
+          Value: !Sub ${UseCaseName}          
+
+  AuroraDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for Aurora PostgreSQL
+      SubnetIds:
+        - !Ref PrivateSubnet1 
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub ${UseCaseName}          
+
+  # --------------------------------------------------------------------------
+  # Secrets Manager for DB credentials
+  # --------------------------------------------------------------------------
+  AuroraDBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${UseCaseName}-aurora-pg-credentials
+      Description: Credentials for Clinical Query Aurora PostgreSQL cluster
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "dbadminuser"}'
+        GenerateStringKey: "password"
+        PasswordLength: 8
+        ExcludeCharacters: '"@/\'
+      Tags:
+        - Key: Name
+          Value: !Sub ${UseCaseName}          
+
+  # --------------------------------------------------------------------------
+  # Aurora PostgreSQL Cluster (Serverless v2)
+  # --------------------------------------------------------------------------
+  AuroraPGCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-postgresql
+      EngineVersion: 16.4
+      DBClusterIdentifier: !Sub ${UseCaseName}-pg-cluster
+      DatabaseName: !Join
+        - "_"
+        - - !Select [0, !Split [ "-", !Ref UseCaseName ]]
+          - !Select [1, !Split [ "-", !Ref UseCaseName ]] 
+          - "db"        
+
+      MasterUsername: !Sub '{{resolve:secretsmanager:${AuroraDBSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${AuroraDBSecret}:SecretString:password}}'
+      DBSubnetGroupName: !Ref AuroraDBSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref AuroraDBSecurityGroup
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: "03:00-04:00"
+      PreferredMaintenanceWindow: "sun:04:00-sun:05:00"
+      EnableCloudwatchLogsExports:
+        - postgresql
+      StorageEncrypted: true
+      DeletionProtection: true
+      Port: 5432
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0.5
+        MaxCapacity: 1
+      EnableHttpEndpoint: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${UseCaseName}          
+
+  # --------------------------------------------------------------------------
+  # Aurora DB Writer Instance
+  # --------------------------------------------------------------------------
+  AuroraPGWriter:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref AuroraPGCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${UseCaseName}          
+
+
+Outputs:
+  ClusterEndpoint:
+    Description: Aurora PostgreSQL cluster endpoint
+    Value: !GetAtt AuroraPGCluster.Endpoint.Address
+
+  ReaderEndpoint:
+    Description: Aurora PostgreSQL reader endpoint
+    Value: !GetAtt AuroraPGCluster.ReadEndpoint.Address
+
+  SecretArn:
+    Description: ARN of the Secrets Manager credentials
+    Value: !Ref AuroraDBSecret
+
+  dbSecurityGroup:
+    Description: Aurora DB Security Group
+    Value: !Ref AuroraDBSecurityGroup

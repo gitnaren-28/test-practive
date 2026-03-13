@@ -1,0 +1,172 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Simple CloudFront distribution with S3 origin
+
+Parameters:
+  UseCaseName:
+    Type: String
+    Default: mlr
+    Description: "Name of the Use Case being developed"
+  
+  CertificateARN:
+    Type: String
+    Description: ARN of the SSL certificate for custom domain (optional)
+    Default: ''
+  
+  DomainName:
+    Type: String
+    Description: Custom domain name (optional)
+    Default: ''
+
+Resources:
+  # S3 Bucket for Website Content
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${UseCaseName}-ui-bucket
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+      Tags:
+        - Key: Name
+          Value: !Sub ${UseCaseName}
+
+  # Bucket Policy to Allow Public Read Access
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action:
+              - s3:GetObject
+            Resource: !Sub ${WebsiteBucket.Arn}/*
+
+  # CloudFront Origin Access Identity (OAI)
+  CloudFrontOAI:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub OAI for ${UseCaseName}
+
+  # CloudFront Distribution
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub ${UseCaseName} Simple CloudFront distribution
+        Enabled: true
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_100 # Use only North America and Europe
+        HttpVersion: http2
+        
+        # Origins
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt WebsiteBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub origin-access-identity/cloudfront/${CloudFrontOAI}
+        
+        # Default Cache Behavior
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          Compress: true
+          DefaultTTL: 86400 # 1 day
+          MaxTTL: 31536000 # 1 year
+          MinTTL: 3600 # 1 hour
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+        
+        # Custom domain configuration (optional)
+        Aliases: !If 
+          - HasCustomDomain
+          - [!Ref DomainName]
+          - !Ref AWS::NoValue
+        
+        # SSL certificate (optional)
+        ViewerCertificate: !If
+          - HasCustomDomain
+          - 
+            AcmCertificateArn: !Ref CertificateARN
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          -
+            CloudFrontDefaultCertificate: true
+        
+        # Logging configuration (optional)
+        Logging:
+          Bucket: !GetAtt LoggingBucket.DomainName
+          IncludeCookies: false
+          Prefix: cloudfront-logs/
+        
+        # Error pages
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 10
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 10
+
+  # S3 Bucket for CloudFront Logs
+  LoggingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${UseCaseName}-cloudfront-logs-s3
+      AccessControl: BucketOwnerFullControl
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: ObjectWriter       
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      LifecycleConfiguration:
+        Rules:
+          - Status: Enabled
+            ExpirationInDays: 365
+            Prefix: cloudfront-logs/
+      Tags:
+        - Key: Name
+          Value: !Sub ${UseCaseName}
+
+Conditions:
+  HasCustomDomain: !Not [!Equals [!Ref DomainName, '']]
+
+Outputs:
+  CloudFrontDomain:
+    Description: CloudFront Distribution Domain Name
+    Value: !GetAtt CloudFrontDistribution.DomainName
+  
+  UIS3BucketName:
+    Description: S3 Bucket Name
+    Value: !Ref WebsiteBucket
+  
+  CloudFrontURL:
+    Description: CloudFront URL
+    Value: !Sub https://${CloudFrontDistribution.DomainName}
+  
+  S3WebsiteURL:
+    Description: S3 Website URL
+    Value: !GetAtt WebsiteBucket.WebsiteURL

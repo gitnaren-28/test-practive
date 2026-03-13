@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: S3 buckets Use Case
+
+Parameters:
+  UseCaseName:
+    Type: String
+    Description: Prefix for all buckets 
+
+  UserGroupName:
+    Type: String
+
+
+Resources:
+  UseCaseBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${UseCaseName}-raw-bucket"
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  LambdaArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${UseCaseName}-lambda-artifacts"
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+
+  BucketAccessPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "${UseCaseName}-bucket-access"
+      Description: Access to all s3 buckets
+      Groups:
+        - !Ref UserGroupName
+
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+
+
+          # --- Primary (read/write) ---
+          - Sid: PrimaryReadWrite
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+              - s3:ListBucket
+            Resource:
+              - !Sub "arn:aws:s3:::${UseCaseName}-raw-bucket"
+              - !Sub "arn:aws:s3:::${UseCaseName}-raw-bucket/*"
+
+          # --- Lambda artifacts (read/write) ---
+          - Sid: LambdaReadWrite
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+              - s3:ListBucket
+            Resource:
+              - !Sub "arn:aws:s3:::${UseCaseName}-lambda-artifacts"
+              - !Sub "arn:aws:s3:::${UseCaseName}-lambda-artifacts/*"
+
+
+
+Outputs:
+  BucketName:
+    Value: !Ref UseCaseBucket
+  LambdaBucketName:
+    Value: !Ref LambdaArtifactsBucket

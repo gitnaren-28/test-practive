@@ -1,0 +1,76 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Cognito User Pool with App Client and Domain
+
+Parameters:
+  UseCaseName:
+    Type: String
+    Default: mlr
+    Description: "Name of the Use Case being developed"
+
+  UserPoolName:
+    Type: String
+    Default: mlr-user-pool
+
+  DomainPrefix:
+    Type: String
+    Default: mlr-user-auth
+    Description: Must be globally unique
+
+  CallbackURL:
+    Type: String
+    Default: http://localhost:5173/sso-login
+
+  LogoutURL:
+    Type: String
+    Default: http://localhost:5173/sso-logout
+
+Resources:
+
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Ref UserPoolName
+      AutoVerifiedAttributes:
+        - email
+      AliasAttributes:
+        - email
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: mlr-user-app-client
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+      CallbackURLs:
+        - !Ref CallbackURL
+      LogoutURLs:
+        - !Ref LogoutURL
+      SupportedIdentityProviders:
+        - COGNITO
+
+  CognitoUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Ref DomainPrefix
+      UserPoolId: !Ref CognitoUserPool
+
+Outputs:
+
+  UserPoolId:
+    Value: !Ref CognitoUserPool
+
+  AppClientId:
+    Value: !Ref CognitoUserPoolClient
+
+  AppClientSecret:
+    Value: !GetAtt CognitoUserPoolClient.ClientSecret
+
+  CognitoDomainURL:
+    Value: !Sub https://${DomainPrefix}.auth.${AWS::Region}.amazoncognito.com

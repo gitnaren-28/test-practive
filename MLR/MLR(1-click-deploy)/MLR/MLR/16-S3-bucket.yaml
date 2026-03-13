@@ -1,0 +1,174 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: S3 buckets with encryption, versioning, and public access blocked
+
+Parameters:
+  UseCaseName:
+    Type: String
+    Default: mlr
+    Description: Prefix for all bucket names
+
+Resources:
+  CloudFrontLogsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${UseCaseName}-cloudfront-logs-s3
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  DataSourceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${UseCaseName}-data-source
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  InfraBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${UseCaseName}-infra-bucket
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  KBSupplementalBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${UseCaseName}-kb-supplemental-storage
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  LambdaTransformationBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${UseCaseName}-lambda-transformation-storage
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  RiskAnalysisAgentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${UseCaseName}-risk-analysis-agent-findings
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  UIBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${UseCaseName}-ui-bucket
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  UserDocumentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${UseCaseName}-user-documents
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  KBMultimodalBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${UseCaseName}-kb-multimodal-storage
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+
+Outputs:
+  CloudFrontLogsBucketName:
+    Value: !Ref CloudFrontLogsBucket
+  DataSourceBucketName:
+    Value: !Ref DataSourceBucket
+  InfraBucketName:
+    Value: !Ref InfraBucket
+  KBSupplementalBucketName:
+    Value: !Ref KBSupplementalBucket
+  LambdaTransformationBucketName:
+    Value: !Ref LambdaTransformationBucket
+  RiskAnalysisAgentBucketName:
+    Value: !Ref RiskAnalysisAgentBucket
+  UIBucketName:
+    Value: !Ref UIBucket
+  UserDocumentsBucketName:
+    Value: !Ref UserDocumentsBucket
+  KBMultimodalBucketName:
+    Value: !Ref KBMultimodalBucket

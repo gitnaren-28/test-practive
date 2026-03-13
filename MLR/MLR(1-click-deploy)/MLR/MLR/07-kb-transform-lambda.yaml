@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Basic Lambda with inline code + S3 RW + Bedrock Knowledge Base Retrieve access
+
+Parameters:
+  UseCaseName:
+    Type: String
+    Default: mlr
+    Description: "Name of the Use Case being developed"
+
+  S3BucketName:
+    Type: String
+    Default: mlr-lambda-transformation-storage
+    Description: "Name of the Use Case being developed"    
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${UseCaseName}-lambda-kb-transform-exec-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+      Policies:
+        - PolicyName: !Sub "${UseCaseName}-lambda-transform-s3"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ListBucket
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:aws:s3:::${S3BucketName}"
+
+              - Sid: ObjectRW
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub "arn:aws:s3:::${S3BucketName}/*"
+
+        - PolicyName: !Sub "${UseCaseName}-lambda-transform-bedrock-kb"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: KnowledgeBaseRead
+                Effect: Allow
+                Action:
+                  - bedrock:GetKnowledgeBase
+                  - bedrock:Retrieve
+                Resource: !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*"
+
+  MlrLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${UseCaseName}-lambda-transformation-storage
+      Runtime: python3.12
+      Timeout: 30
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref lambdaS3Artifacts
+        S3Key: kb-transform-lambda-function.zip      
+          
+
+  KBTransformPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref MlrLambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: bedrock.amazonaws.com
+  
+
+Outputs:
+  LambdaName:
+    Value: !Ref MlrLambdaFunction
+  LambdaArn:
+    Value: !GetAtt MlrLambdaFunction.Arn
+  RoleArn:
+    Value: !GetAtt LambdaExecutionRole.Arn

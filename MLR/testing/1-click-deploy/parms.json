@@ -1,0 +1,18 @@
+{
+  "Parameters": {
+    "UseCaseName": "mlr",
+    "UserGroupName": "MLR-user-group",
+    "S3BucketName": "mlr-infra-bucket",
+    "lambdaS3Artifacts": "mlr-lambda-artifacts",
+    "VpcId": "vpc-0e81fe40638491a4c",
+    "PrivateSubnet1": "subnet-08a135444d05e0ec4",
+    "PrivateSubnet2": "subnet-0ac50f2d77e2dc700",
+    "PrivateSubnet3": "subnet-077101334eaff0e5a",
+    "lambdaHandler": "kpi_api.lambda_handler",
+    "lambdaS3key": "kpi_api/kpi_api-function.zip",
+    "DynamoDBTableName": "newtest-copilot_chat_messages",
+    "DynamoDBTableName1": "newtest-copilot_chat_sessions",
+    "KPIAPIFunction": "newtest-copilot-lambda_kpi_api",
+    "LambdaARN": "arn:aws:lambda:us-east-2:969385807621:function:newtest-copilot-lambda_kpi_api"
+  }
+}

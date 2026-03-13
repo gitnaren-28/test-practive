@@ -1,0 +1,44 @@
+{
+  "review": {
+    "id": "MLR-99284",
+    "documentName": "Lorem_Drug_HCP Response Letter",
+    "reviewType": "Non-Promotional Medical Communication",
+    "channel": "Email",
+    "region": "USA"
+  },
+  "workflow": {
+    "steps": [
+      { "id": 1, "label": "Document Uploaded" },
+      { "id": 2, "label": "Required Data Validated" },
+      { "id": 3, "label": "AI Review Initiated" },
+      { "id": 4, "label": "Result Executed" }
+    ],
+    "progress": 60
+  },
+  "agents": [
+    {
+      "id": "basic-quality",
+      "title": "Basic Quality",
+      "icon": "/dashboardicons/Vector (5).svg",
+      "tasks": ["Spelling & Grammar", "Formatting Consistency", "Document Completeness"]
+    },
+    {
+      "id": "content-accuracy",
+      "title": "Content Accuracy",
+      "icon": "/dashboardicons/Vector (6).svg",
+      "tasks": ["Claims Verification", "Reference Validation", "Data Integrity"]
+    },
+    {
+      "id": "regulatory-compliance",
+      "title": "Regulatory Compliance",
+      "icon": "/dashboardicons/Vector (7).svg",
+      "tasks": ["Fair Balance Assessment", "Safety Information", "Promotional Standards"]
+    },
+    {
+      "id": "strategic-assessment",
+      "title": "Strategic Assessment",
+      "icon": "/dashboardicons/Group 43.svg",
+      "tasks": ["Medical Accuracy", "Legal Risk", "Brand Alignment"]
+    }
+  ]
+}

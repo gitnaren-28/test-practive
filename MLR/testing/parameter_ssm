@@ -1,0 +1,48 @@
+aws ssm put-parameter `
+--region us-east-1 `
+--name "/mlr/COGNITO/USER_POOL_ID" `
+--type "String" `
+--value "$env:USER_POOL_ID" `
+--overwrite
+
+aws ssm put-parameter `
+--region us-east-1 `
+--name "/mlr/COGNITO/ISSUER_URL" `
+--type "String" `
+--value "$env:ISSUER_URL" `
+--overwrite
+
+aws ssm put-parameter `
+--region us-east-1 `
+--name "/mlr/COGNITO/OAUTH_CLIENT_ID" `
+--type "String" `
+--value "$env:CLIENT_ID" `
+--overwrite
+
+aws ssm put-parameter `
+--region us-east-1 `
+--name "/mlr/COGNITO/OAUTH_CLIENT_SECRET" `
+--type "String" `
+--value "$env:CLIENT_SECRET" `
+--overwrite
+
+aws ssm put-parameter `
+--region us-east-1 `
+--name "/mlr/COGNITO/M2M_CLIENT_ID" `
+--type "String" `
+--value "$env:M2M_CLIENT_ID" `
+--overwrite
+
+aws ssm put-parameter `
+--region us-east-1 `
+--name "/mlr/COGNITO/M2M_CLIENT_SECRET" `
+--type "String" `
+--value "$env:M2M_CLIENT_SECRET" `
+--overwrite
+
+aws ssm put-parameter `
+--region us-east-1 `
+--name "/mlr/COGNITO/HOSTED_UI_URL" `
+--type "String" `
+--value "$env:HOSTED_UI_URL" `
+--overwrite

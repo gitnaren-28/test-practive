@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Creates DynamoDB tables for MLR application
+
+Parameters:
+  NamePrefix:
+    Type: String
+    Default: mlr
+    Description: Variable part of the DynamoDB table names
+
+Resources:
+
+  # ------------------------
+  # DynamoDB Table: mlr_user_document_history
+  # ------------------------
+  UserDocumentHistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${NamePrefix}_user_document_history"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_doc_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_doc_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+
+Outputs:
+  UserDocumentHistoryTableName:
+    Description: User Document History table name
+    Value: !Ref UserDocumentHistoryTable
+
+  UserDocumentHistoryTableArn:
+    Description: User Document History table ARN
+    Value: !GetAtt UserDocumentHistoryTable.Arn

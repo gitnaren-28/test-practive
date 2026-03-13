@@ -1,0 +1,261 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: MLR Lambda Functions Stack 
+
+Parameters:
+  UseCaseName:
+    Type: String
+    Default: mlr
+  LambdaS3Bucket:
+    Type: String
+    Description: S3 bucket containing Lambda code
+  LambdaS3KeyPrefix:
+    Type: String
+    Default: ''
+    Description: S3 key prefix for Lambda code
+
+Resources:
+
+  ########################################
+  # IAM Role for Lambda Execution
+  ########################################
+
+   LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${UseCaseName}StepFnLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${UseCaseName}LambdaBasicPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource: "*"
+
+              - Effect: Allow
+                Action:
+                  - bedrock-agentcore:InvokeAgentRuntime
+                Resource:
+                  - "arn:aws:bedrock-agentcore:us-east-1:969385807621:runtime/mlr_risk_analysis_agent-B326pgBuvg"
+                  - "arn:aws:bedrock-agentcore:us-east-1:969385807621:runtime/mlr_risk_analysis_agent-B326pgBuvg/*"
+
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: "arn:aws:ssm:us-east-1:969385807621:parameter/MLR*"
+
+  
+  LambdaExecutionRole1:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${UseCaseName}-kpi-api-lambda-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${UseCaseName}-KpiApiLambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Stepfunctions
+                Effect: Allow
+                Action:
+                    - states:StartExecution
+                    - states:DescribeExecution
+                    - states:ListExecutions
+                    - states:StopExecution
+                    - states:TestState
+                    - states:UpdateStateMachine                
+                Resource: "*"
+
+              - Sid: SSMParms
+                Effect: Allow
+                Action:
+                    - ssm:GetParameter
+                Resource: "arn:aws:ssm:*:*:parameter/*"
+
+              - Sid: S3Access
+                Effect: Allow
+                Action:
+                    - s3:*
+                Resource: "*"
+
+              - Sid: DynamoDBAccess
+                Effect: Allow
+                Action:
+                    - dynamodb:*
+                Resource: "*"
+
+              - Sid: RedshiftAccess
+                Effect: Allow
+                Action:
+                    - redshift-data:*
+                Resource: "*"
+
+  ########################################
+  # Lambda Functions
+  ########################################
+
+  DeltaDetector:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-delta-detector'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Sub '${LambdaS3KeyPrefix}mlr-delta-detector.zip'
+
+  SupervisorAgent:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-supervisor-agent'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Sub '${LambdaS3KeyPrefix}mlr-supervisor-agent.zip'
+
+  ReferenceAgent:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-reference-agent'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Sub '${LambdaS3KeyPrefix}mlr-reference-agent.zip'
+
+  ContentAnalysisAgent:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-content-analysis-agent'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Sub '${LambdaS3KeyPrefix}mlr-content-analysis-agent.zip'
+
+  ComplianceAgent:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-compliance-agent'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Sub '${LambdaS3KeyPrefix}mlr-compliance-agent.zip'
+
+  QualityAgent:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-quality-agent'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Sub '${LambdaS3KeyPrefix}mlr-quality-agent.zip'
+
+  AggregateAgentsResults:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-aggregate-agents-results'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Sub '${LambdaS3KeyPrefix}mlr-aggregate-agents-results.zip'
+
+  RiskAnalysisAgent:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-risk-analysis-agent'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Sub '${LambdaS3KeyPrefix}mlr-risk-analysis-agent.zip'
+
+  UploadDocument:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-upload-document'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Sub '${LambdaS3KeyPrefix}mlr-upload-document.zip'
+
+  KpiApi:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-kpi-api'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole1.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Sub '${LambdaS3KeyPrefix}mlr-kpi-api.zip'
+
+  GetAgentFindings:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-get-agent-findings'
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Sub '${LambdaS3KeyPrefix}mlr-get-agent-findings.zip'
+
+Outputs:
+  DeltaDetectorArn:
+    Value: !GetAtt DeltaDetector.Arn
+  SupervisorAgentArn:
+    Value: !GetAtt SupervisorAgent.Arn
+  ReferenceAgentArn:
+    Value: !GetAtt ReferenceAgent.Arn
+  ContentAnalysisAgentArn:
+    Value: !GetAtt ContentAnalysisAgent.Arn
+  ComplianceAgentArn:
+    Value: !GetAtt ComplianceAgent.Arn
+  QualityAgentArn:
+    Value: !GetAtt QualityAgent.Arn
+  AggregateAgentsResultsArn:
+    Value: !GetAtt AggregateAgentsResults.Arn
+  RiskAnalysisAgentArn:
+    Value: !GetAtt RiskAnalysisAgent.Arn
+  UploadDocumentArn:
+    Value: !GetAtt UploadDocument.Arn
+  KpiApiArn:
+    Value: !GetAtt KpiApi.Arn
+  GetAgentFindingsArn:
+    Value: !GetAtt GetAgentFindings.Arn

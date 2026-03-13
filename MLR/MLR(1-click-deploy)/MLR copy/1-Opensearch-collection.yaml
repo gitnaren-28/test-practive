@@ -1,0 +1,160 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: OpenSearch Serverless collection with required policies
+
+Parameters:
+  CollectionName:
+    Type: String
+    Default: mlr-rag-collection
+    Description: OpenSearch Serverless collection name
+
+  AOSSIndexName:
+    Type: String
+    Default: mlr-aoss-collection-index
+
+
+  EncryptionPolicyName:
+    Type: String
+    Default: mlr-encryptionpolicy
+
+  NetworkPolicyName:
+    Type: String
+    Default: mlr-networkpolicy
+
+  DataAccessPolicyName:
+    Type: String
+    Default: mlr-data-accesspolicy
+
+  KBAccessPolicyName:
+    Type: String
+    Default: mlr-KB-accesspolicy
+
+
+Resources:
+
+  ############################################
+  #  ENCRYPTION POLICY (REQUIRED)
+  ############################################
+  EncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Ref EncryptionPolicyName
+      Type: encryption
+      Description: Encryption policy for OpenSearch Serverless collection
+      Policy: !Sub |
+        {
+          "Rules": [
+            {
+              "ResourceType": "collection",
+              "Resource": ["collection/${CollectionName}"]
+            }
+          ],
+          "AWSOwnedKey": true
+        }
+
+  ############################################
+  #  NETWORK POLICY (REQUIRED)
+  ############################################
+  NetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Ref NetworkPolicyName
+      Type: network
+      Description: Network access policy for collection
+      Policy: !Sub |
+        [
+          {
+            "Rules": [
+              {
+                "ResourceType": "collection",
+                "Resource": ["collection/${CollectionName}"]
+              }
+            ],
+            "AllowFromPublic": true
+          }
+        ]
+
+  ############################################
+  #  DATA ACCESS POLICY (REQUIRED)
+  ############################################
+  DataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Properties:
+      Name: !Ref DataAccessPolicyName
+      Type: data
+      Description: Data access permissions for users/roles
+      Policy: !Sub |
+        [
+          {
+            "Rules": [
+              {
+                "ResourceType": "collection",
+                "Resource": ["collection/${CollectionName}"],
+                "Permission": [
+                  "aoss:*"
+                ]
+              },
+              {
+                "ResourceType": "index",
+                "Resource": ["index/${CollectionName}/*"],
+                "Permission": [
+                  "aoss:*"
+                ]
+              }
+            ],
+            "Principal": ["arn:aws:iam::969385807621:user/Eldho.Baby",
+                          "arn:aws:iam::969385807621:user/Jai.Murali",
+                          "arn:aws:iam::969385807621:role/aws-service-role/member.org.stacksets.cloudformation.amazonaws.com/AWSServiceRoleForCloudFormationStackSetsOrgMember",
+                          "arn:aws:iam::969385807621:user/Bidhan.Laha"]
+          }
+        ]
+
+
+  MLRAossVectorIndex:
+    Type: AWS::OpenSearchServerless::Index
+    Properties:
+      IndexName: !Ref AOSSIndexName
+      CollectionEndpoint: !GetAtt AOSSCollection.CollectionEndpoint
+      #CollectionName: !Ref AOSSCollection
+      Settings:
+        Index:
+          Knn: true
+          KnnAlgoParamEfSearch: 100
+          RefreshInterval: '10s'      
+      Mappings:
+         Properties:
+          mlr-aoss-vector-field:
+            Type: knn_vector
+            Dimension: 1024
+          mlr-aoss-text-field:
+            Type: text
+          mlr-aoss-metadata-field:
+            Type: text
+            Index: false
+
+
+  ############################################
+  #  COLLECTION
+  ############################################
+  AOSSCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    Properties:
+      Name: !Ref CollectionName
+      Type: VECTORSEARCH
+      Description: Search collection
+    DependsOn:
+      - EncryptionPolicy
+      - NetworkPolicy
+      - DataAccessPolicy
+
+Outputs:
+  CollectionName:
+    Description: Name of the OpenSearch Serverless collection
+    Value: !Ref CollectionName
+
+  CollectionArn:
+    Description: ARN of the created OpenSearch Serverless collection
+    Value: !GetAtt AOSSCollection.Arn
+
+  DashboardUrl:
+    Description: Console URL to collection dashboard
+    Value: !Sub "https://console.aws.amazon.com/aos/home#/opensearch/serverless/collections/${CollectionName}"

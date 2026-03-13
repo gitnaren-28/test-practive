@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Creates DynamoDB table for user documents
+
+Parameters:
+  NamePrefix:
+    Type: String
+    Default: mlr
+    Description: Variable part of the DynamoDB table names
+
+Resources:
+
+  # ------------------------
+  # DynamoDB Table: user_documents
+  # ------------------------
+  UserDocumentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${NamePrefix}_user_documents"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+
+Outputs:
+  UserDocumentsTableName:
+    Description: User Documents table name
+    Value: !Ref UserDocumentsTable
+
+  UserDocumentsTableArn:
+    Description: User Documents table ARN
+    Value: !GetAtt UserDocumentsTable.Arn

@@ -1,0 +1,341 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: MLR Reviewer KPI API Lambda Function
+
+Parameters:
+  UseCaseName:
+    Type: String
+    Default: mlr
+    Description: Prefix for naming resources
+
+  LambdaRuntime:
+    Type: String
+    Default: python3.12
+    AllowedValues:
+      - python3.12
+      - python3.11
+      - python3.10
+
+  Environment:
+    Type: String
+    Default: dev
+    Description: Environment name
+
+  ApiName:
+    Type: String
+    Default: reviewer-kpi-api
+    Description: API Gateway name
+
+Resources:
+  ############################################
+  # IAM Role for Lambda
+  ############################################
+  ReviewerKpiApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${UseCaseName}-reviewer-kpi-api-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ReviewerKpiApiPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource:
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${UseCaseName}*'
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/MLR*'
+
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UseCaseName}*'
+
+              - Effect: Allow
+                Action:
+                  - redshift-data:ExecuteStatement
+                  - redshift-data:DescribeStatement
+                  - redshift-data:GetStatementResult
+                  - redshift-data:ListStatements
+                Resource: '*'
+
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:mlr*'
+
+  ############################################
+  # Lambda: MLR Reviewer KPI API
+  ############################################
+  ReviewerKpiApi:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-reviewer-kpi-api'
+      Runtime: !Ref LambdaRuntime
+      Handler: mlr-reviewer-kpi-api.lambda_handler
+      Role: !GetAtt ReviewerKpiApiRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          USE_CASE: !Ref UseCaseName
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import decimal
+          from enum import Enum
+          from datetime import datetime, timezone
+          from boto3.dynamodb.conditions import Attr, Key
+
+          # AWS Service clients
+          AWS_REGION = "us-east-1"
+          dynamodb = boto3.resource("dynamodb")
+          redshift_data = boto3.client('redshift-data')
+
+          # DynamoDB Table Config
+          MLR_REVIEW_TABLE = "mlr_doc_review"
+          mlr_review_table = dynamodb.Table(MLR_REVIEW_TABLE)
+
+          # Redshift Config
+          WORKGROUP_NAME = "mlr-workgroup"
+          DATABASE = "mlr_db"
+          SECRET_ARN = "arn:aws:secretsmanager:us-east-1:969385807621:secret:mlr-redshift-serverless-credentials-new-7Xapm4"
+
+          def generate_timestamp():
+              now = datetime.now(timezone.utc)
+              return now.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
+          def get_parameter_value(name: str) -> str:
+              ssm = boto3.client("ssm", region_name=AWS_REGION)
+              response = ssm.get_parameter(Name=name, WithDecryption=True)
+              return response["Parameter"]["Value"]
+
+          def execute_redshift_query(sql_query):
+              """Execute a Redshift Serverless query and return results"""
+              # Execute the query
+              response = redshift_data.execute_statement(
+                  WorkgroupName=WORKGROUP_NAME,
+                  Database=DATABASE,
+                  SecretArn=SECRET_ARN,
+                  Sql=sql_query
+              )
+              
+              query_id = response['Id']
+              
+              # Wait for query to complete
+              import time
+              while True:
+                  status_response = redshift_data.describe_statement(Id=query_id)
+                  status = status_response['Status']
+                  
+                  if status == 'FINISHED':
+                      break
+                  elif status in ['FAILED', 'ABORTED']:
+                      raise Exception(f"Query failed with status: {status}")
+                  
+                  time.sleep(0.5)
+              
+              # Get results
+              result = redshift_data.get_statement_result(Id=query_id)
+              return result
+
+          def get_high_critical_risk_count(reviewer_id, doc_ids):
+              """Query Redshift to count HIGH and CRITICAL severity findings for given documents"""
+              if not doc_ids:
+                  return 0
+              
+              # Create comma-separated list of doc_ids for SQL IN clause
+              doc_ids_str = "','".join(doc_ids)
+              
+              # Query to count HIGH and CRITICAL severity findings
+              sql_query = f"""
+              SELECT COUNT(*) as high_critical_count
+              FROM mlr_findings
+              WHERE doc_id IN ('{doc_ids_str}')
+              AND UPPER(severity) IN ('HIGH', 'CRITICAL')
+              """
+              
+              try:
+                  result = execute_redshift_query(sql_query)
+                  
+                  # Parse result
+                  if result['Records']:
+                      count = result['Records'][0][0].get('longValue', 0)
+                      return count
+                  return 0
+              except Exception as e:
+                  print(f"Error querying Redshift: {str(e)}")
+                  return 0
+
+          # Lambda Handler
+          def lambda_handler(event, context):
+              route_key = event.get("routeKey")
+
+              routes = {
+                  "GET /reviewer/{reviewer_id}/dashboard": get_dashboard_content
+              }
+
+              handler = routes.get(route_key, not_found)
+              return handler(event)
+
+          def get_dashboard_content(event):
+              try:
+                  # Extract reviewer_id from path parameters
+                  reviewer_id = event.get("pathParameters", {}).get("reviewer_id")
+                  
+                  if not reviewer_id:
+                      return build_response(400, {"message": "reviewer_id is required"})
+                  
+                  # Scan the table to get all reviews for this reviewer
+                  response = mlr_review_table.scan(
+                      FilterExpression=Attr('reviewer_user_id').eq(reviewer_id)
+                  )
+                  
+                  reviews = response.get('Items', [])
+                  
+                  # Calculate KPIs
+                  total_reviews = len(reviews)
+                  pending_reviews = sum(1 for review in reviews if review.get('status') == 'PENDING')
+                  
+                  # Calculate approval rate
+                  approved = sum(1 for r in reviews if r.get("status") == "APPROVED")
+                  completed = sum(1 for r in reviews if r.get("status") in ["APPROVED", "REJECTED"])
+                  review_approval_rate = round((approved / completed) * 100, 2) if completed > 0 else 0
+                  
+                  # Get doc_ids from reviews to query Redshift
+                  doc_ids = [f"{review.get('assignee_user_id')}:{review.get('doc_id')}" for review in reviews]
+                  
+                  # Query Redshift for high/critical risk count
+                  high_critical_risk_count = get_high_critical_risk_count(reviewer_id, doc_ids)
+                  
+                  # Build response
+                  dashboard_data = {
+                      "kpis": {
+                          "total_reviews": total_reviews,
+                          "pending_reviews": pending_reviews,
+                          "review_approval_rate": review_approval_rate,
+                          "high_critical_risk": high_critical_risk_count
+                      }
+                  }
+                  
+                  return build_response(200, dashboard_data)
+                  
+              except Exception as e:
+                  print(f"Error in get_dashboard_content: {str(e)}")
+                  return build_response(500, {"message": "Internal server error", "error": str(e)})
+
+          def not_found(event):
+              return build_response(404, {"message": "Route not found"})
+
+          def json_default(obj):
+              if isinstance(obj, decimal.Decimal):
+                  return int(obj) if obj % 1 == 0 else float(obj)
+              return str(obj)
+
+          def build_response(status_code, body):
+              return {
+                  "statusCode": status_code,
+                  "headers": {"Content-Type": "application/json"},
+                  "body": json.dumps(body, default=json_default),
+              }
+
+  ############################################
+  # Lambda Permission for API Gateway
+  ############################################
+  ApiGatewayInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ReviewerKpiApi
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*'
+
+  ############################################
+  # HTTP API Gateway with OpenAPI Spec
+  ############################################
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Body:
+        openapi: '3.0.1'
+        info:
+          title: !Sub ${UseCaseName}-${ApiName}
+        paths:
+          /reviewer/{reviewer_id}/dashboard:
+            get:
+              parameters:
+                - name: 'reviewer_id'
+                  in: 'path'
+                  description: 'Reviewer ID to retrieve dashboard'
+                  required: true
+                  schema:
+                    type: 'string'
+              responses:
+                default:
+                  description: 'Get dashboard for a reviewer'
+              x-amazon-apigateway-integration:
+                payloadFormatVersion: '2.0'
+                type: 'aws_proxy'
+                httpMethod: 'POST'
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ReviewerKpiApi.Arn}/invocations'
+                connectionType: 'INTERNET'
+        x-amazon-apigateway-cors:
+          allowMethods:
+            - 'GET'
+            - 'OPTIONS'
+          allowHeaders:
+            - '*'
+          maxAge: 300
+          allowCredentials: false
+          allowOrigins:
+            - '*'
+          exposeHeaders:
+            - Content-Type
+            - Authorization
+            - X-Amz-Date
+            - X-Api-Key
+            - X-Amz-Security-Token
+            - X-Amzn-Trace-Id
+            - X-Requested-With
+        x-amazon-apigateway-importexport-version: '1.0'
+
+  ############################################
+  # API Stage
+  ############################################
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: !Ref Environment
+      AutoDeploy: true
+
+Outputs:
+  ReviewerKpiApiArn:
+    Description: Lambda Function ARN
+    Value: !GetAtt ReviewerKpiApi.Arn
+  
+  ApiEndpoint:
+    Description: HTTP API Gateway endpoint URL
+    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+  
+  ApiId:
+    Description: API Gateway ID
+    Value: !Ref HttpApi
+  
+  ApiStageName:
+    Description: API Stage Name
+    Value: !Ref ApiStage

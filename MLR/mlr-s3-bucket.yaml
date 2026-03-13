@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: S3 Bucket for MLR Lambda Code
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: mlr-lambda-code
+    Description: Name of the S3 bucket for Lambda code
+  EnableVersioning:
+    Type: String
+    Default: Enabled
+    AllowedValues:
+      - Enabled
+      - Suspended
+    Description: Enable versioning for the S3 bucket
+
+Resources:
+  LambdaCodeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      VersioningConfiguration:
+        Status: !Ref EnableVersioning
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+Outputs:
+  BucketName:
+    Description: S3 bucket name for Lambda code
+    Value: !Ref LambdaCodeBucket
+    Export:
+      Name: MLRLambdaCodeBucket
+  BucketArn:
+    Description: S3 bucket ARN
+    Value: !GetAtt LambdaCodeBucket.Arn

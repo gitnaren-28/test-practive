@@ -1,0 +1,187 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Glue Database, Crawler and IAM Role (Table created automatically by crawler)
+ 
+Parameters:
+
+  GlueDatabaseName:
+
+    Type: String
+
+    Default: demo_glue_db
+ 
+  GlueCrawlerName:
+
+    Type: String
+
+    Default: demo_json_crawler
+ 
+  S3BucketName:
+
+    Type: String
+
+    Description: S3 bucket containing JSON files
+ 
+  S3DataLocation:
+
+    Type: String
+
+    Description: S3 folder path (must end with /)
+ 
+Resources:
+ 
+  # -----------------------------
+
+  # IAM Role for AWS Glue
+
+  # -----------------------------
+
+  GlueServiceRole:
+
+    Type: AWS::IAM::Role
+
+    Properties:
+
+      RoleName: !Sub glue-service-role-${AWS::StackName}
+
+      AssumeRolePolicyDocument:
+
+        Version: '2012-10-17'
+
+        Statement:
+
+          - Effect: Allow
+
+            Principal:
+
+              Service: glue.amazonaws.com
+
+            Action: sts:AssumeRole
+ 
+  GlueServiceRolePolicy:
+
+    Type: AWS::IAM::Policy
+
+    Properties:
+
+      PolicyName: glue-s3-policy
+
+      Roles:
+
+        - !Ref GlueServiceRole
+
+      PolicyDocument:
+
+        Version: '2012-10-17'
+
+        Statement:
+
+          # Glue permissions
+
+          - Effect: Allow
+
+            Action:
+
+              - glue:GetDatabase
+
+              - glue:GetDatabases
+
+              - glue:CreateTable
+
+              - glue:UpdateTable
+
+              - glue:GetTable
+
+              - glue:GetTables
+
+            Resource: "*"
+ 
+          # S3 access for crawling data
+
+          - Effect: Allow
+
+            Action:
+
+              - s3:ListBucket
+
+            Resource: !Sub arn:aws:s3:::${S3BucketName}
+ 
+          - Effect: Allow
+
+            Action:
+
+              - s3:GetObject
+
+            Resource: !Sub arn:aws:s3:::${S3BucketName}/*
+ 
+  # -----------------------------
+
+  # Glue Database
+
+  # -----------------------------
+
+  GlueDatabase:
+
+    Type: AWS::Glue::Database
+
+    Properties:
+
+      CatalogId: !Ref AWS::AccountId
+
+      DatabaseInput:
+
+        Name: !Ref GlueDatabaseName
+
+        Description: Glue database for crawler-created tables
+ 
+  # -----------------------------
+
+  # Glue Crawler (Auto-creates tables)
+
+  # -----------------------------
+
+  GlueCrawler:
+
+    Type: AWS::Glue::Crawler
+
+    DependsOn: GlueDatabase
+
+    Properties:
+
+      Name: !Ref GlueCrawlerName
+
+      Role: !GetAtt GlueServiceRole.Arn
+
+      DatabaseName: !Ref GlueDatabaseName
+ 
+      Targets:
+
+        S3Targets:
+
+          - Path: !Ref S3DataLocation
+ 
+      TablePrefix: auto_
+ 
+      SchemaChangePolicy:
+
+        UpdateBehavior: UPDATE_IN_DATABASE
+
+        DeleteBehavior: LOG
+ 
+      RecrawlPolicy:
+
+        RecrawlBehavior: CRAWL_EVERYTHING
+ 
+Outputs:
+
+  GlueDatabase:
+
+    Value: !Ref GlueDatabaseName
+ 
+  GlueCrawler:
+
+    Value: !Ref GlueCrawlerName
+ 
+
+
+ 

@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Creates DynamoDB tables for MLR application and attaches
+  a managed IAM policy to a group for read/write access.
+
+Parameters:
+  NamePrefix:
+    Type: String
+    Default: mlr
+    Description: Variable part of the DynamoDB table names
+
+  GroupName:
+    Type: String
+    Default: MLR-user-group
+    Description: Name of existing IAM Group
+
+Resources:
+
+  # ------------------------
+  # DynamoDB Table: mlr_agent_findings
+  # ------------------------
+  AgentFindingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${NamePrefix}_agent_findings"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: doc_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: doc_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+
+  # ------------------------
+  # IAM Managed Policy (READ + WRITE)
+  # ------------------------
+  DynamoDBReadWriteManagedPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "${NamePrefix}-dynamodb-readwrite-policy"
+      Groups:
+        - !Ref GroupName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:Query
+              - dynamodb:Scan
+              - dynamodb:BatchGetItem
+              - dynamodb:PutItem
+              - dynamodb:UpdateItem
+              - dynamodb:DeleteItem
+              - dynamodb:BatchWriteItem
+            Resource:
+              - !GetAtt AgentFindingsTable.Arn
+              - !Sub "${AgentFindingsTable.Arn}/index/*"
+              - arn:aws:dynamodb:*:*:table/mlr_user_documents
+              - arn:aws:dynamodb:*:*:table/mlr_user_documents/index/*
+
+Outputs:
+  AgentFindingsTableName:
+    Description: Agent Findings table name
+    Value: !Ref AgentFindingsTable
+
+  AgentFindingsTableArn:
+    Description: Agent Findings table ARN
+    Value: !GetAtt AgentFindingsTable.Arn
+
+  IAMManagedPolicyName:
+    Description: IAM Managed Policy with DynamoDB read/write access
+    Value: !Ref DynamoDBReadWriteManagedPolicy

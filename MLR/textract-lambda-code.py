@@ -1,0 +1,136 @@
+import json
+            import time
+            import boto3
+
+            # =========================
+            # Config
+            # =========================
+            AWS_REGION = "us-east-1"
+
+            def get_parameter_value(name: str) -> str:
+                ssm = boto3.client("ssm", region_name=AWS_REGION)
+                response = ssm.get_parameter(Name=name, WithDecryption=True)
+                return response["Parameter"]["Value"]
+
+            textract = boto3.client("textract", region_name=AWS_REGION)
+            stepfunctions = boto3.client("stepfunctions", region_name=AWS_REGION)
+
+            STEP_FUNCTION_ARN = get_parameter_value("MLR_STEP_FUNCTION_ARN") 
+
+            # =========================
+            # Parse S3 path
+            # =========================
+            def parse_s3_path(s3_path: str):
+            
+                s3_path = s3_path.replace("s3://", "")
+                bucket = s3_path.split("/")[0]
+                key = "/".join(s3_path.split("/")[1:])
+                return bucket, key
+
+
+            def wait_for_textract(job_id):
+                """
+                Polls Textract job until completion
+                """
+                while True:
+                    response = textract.get_document_text_detection(JobId=job_id)
+                    status = response["JobStatus"]
+
+                    if status in ["SUCCEEDED", "FAILED"]:
+                        return status
+
+                    time.sleep(3)
+
+            # =========================
+            # Text Extraction
+            # =========================
+            def extract_full_text(job_id):
+                """
+                Retrieves all paginated results
+                """
+                next_token = None
+                full_text = []
+
+                while True:
+                    if next_token:
+                        response = textract.get_document_text_detection(
+                            JobId=job_id,
+                            NextToken=next_token
+                        )
+                    else:
+                        response = textract.get_document_text_detection(
+                            JobId=job_id
+                        )
+
+                    for block in response.get("Blocks", []):
+                        if block["BlockType"] == "LINE":
+                            full_text.append(block["Text"])
+
+                    next_token = response.get("NextToken")
+                    if not next_token:
+                        break
+
+                return "\n".join(full_text)
+
+            # =========================
+            # Lambda handler
+            # =========================
+            def lambda_handler(event, context):
+
+                try:
+                    print("Received event:", json.dumps(event))
+
+                    user_id = event["user_id"]
+                    doc_id = event["doc_id"]
+                    s3_path = event["s3_path"]
+
+                    bucket, key = parse_s3_path(s3_path)
+
+                    # Start async Textract job
+                    start_response = textract.start_document_text_detection(
+                        DocumentLocation={
+                            "S3Object": {
+                                "Bucket": bucket,
+                                "Name": key
+                            }
+                        }
+                    )
+
+                    job_id = start_response["JobId"]
+                    print("Textract Job ID:", job_id)
+
+                    # Wait for completion
+                    status = wait_for_textract(job_id)
+
+                    if status != "SUCCEEDED":
+                        raise Exception(f"Textract job failed with status: {status}")
+
+                    # Extract text
+                    extracted_text = extract_full_text(job_id)
+
+                    # Invoke Step Function with doc content
+                    stepfunctions.start_execution(
+                        stateMachineArn=STEP_FUNCTION_ARN,
+                        input=json.dumps({
+                            "user_id": user_id,
+                            "doc_id": doc_id,
+                            "s3_path": s3_path,
+                            "doc": extracted_text
+                        }, ensure_ascii=False)
+                    )
+
+                    return {
+                        "statusCode": 200,
+                        "body":{
+                            "doc": extracted_text
+                        }
+                    }
+
+                except Exception as e:
+                    print("ERROR:", str(e))
+                    return {
+                        "statusCode": 500,
+                        "body":{
+                            "error": str(e)
+                        }
+                    }

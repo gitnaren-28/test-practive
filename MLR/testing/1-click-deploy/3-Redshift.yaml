@@ -1,0 +1,273 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Redshift Serverless setup with secret, IAM access, and Lambda role for Sales_Copilot
+
+Parameters:
+  VpcId:
+    Type: String
+    Default: vpc-088fec9fcdba72bd5
+    Description: VPC ID for Sales Copilot
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-0d468bbb367b36084
+    Description: Private subnet in AZ1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-02ba9a51f43a2eb61
+    Description: Private subnet in AZ2
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-0e069227f4e166dd9
+    Description: Private subnet in AZ2
+
+  S3BucketName:
+    Type: String
+    Default: sales-copilot-bucket
+    Description: "Name of the s3 bucked used in current Use Case being developed"
+
+  UseCaseName:
+    Type: String
+    Description: "Name of the Use Case being developed"
+
+  UserGroupName:
+    Type: String
+    Default: Sales_Copilot
+    Description: "Name of the User Group for the current Use Case being developed"
+
+Resources:
+  RedshiftServerlessSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Redshift serverless
+      VpcId: !Ref VpcId  # Replace YourVPC with your VPC resource or ID
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 0
+          CidrIp: 0.0.0.0/0
+          Description: Allow all access from anywhere to redshift serverless
+          #SourceSecurityGroupId: !Ref YourApplicationSecurityGroup # Allow access from your application's security group
+      Tags:
+        - Key: Name
+          Value: !Sub ${UseCaseName}          
+
+  RedshiftServerlessIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - redshift-serverless.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      #ManagedPolicyArns:
+      #  - arn:aws:iam::aws:policy/aws-service-role/AmazonRedshiftServiceLinkedRolePolicy
+      Policies:
+        - PolicyName: !Sub ${UseCaseName}-RedshiftServerlessS3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${S3BucketName}'
+                  - !Sub 'arn:aws:s3:::${S3BucketName}/*'
+      Tags:
+        - Key: Name
+          Value: !Sub ${UseCaseName}          
+
+
+  # --------------------------------------------------------------------------
+  # Secrets Manager - Admin credentials for Redshift Serverless
+  # --------------------------------------------------------------------------
+  AWSRedshiftServerlessSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${UseCaseName}-redshift-serverless-credentials
+      Description: Admin credentials for Redshift Serverless
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "sales_copilot_admin"}'
+        GenerateStringKey: "password"
+        PasswordLength: 8
+        ExcludeCharacters: '"@/\+{};()'
+      Tags:
+        - Key: Name
+          Value: !Sub ${UseCaseName}
+    DeletionPolicy: Retain
+
+  # --------------------------------------------------------------------------
+  # Redshift Serverless Namespace
+  # --------------------------------------------------------------------------
+  AWSRedshiftServerlessNamespace:
+    Type: AWS::RedshiftServerless::Namespace
+    Properties:
+      NamespaceName: !Sub ${UseCaseName}-namespace
+      DbName: !Sub ${UseCaseName}_db
+      AdminUsername: !Sub '{{resolve:secretsmanager:${AWSRedshiftServerlessSecret}:SecretString:username}}'
+      AdminUserPassword: !Sub '{{resolve:secretsmanager:${AWSRedshiftServerlessSecret}:SecretString:password}}'
+      IamRoles:
+        - !GetAtt RedshiftServerlessIAMRole.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub ${UseCaseName}
+
+  # --------------------------------------------------------------------------
+  # Redshift Serverless Workgroup
+  # --------------------------------------------------------------------------
+  AWSRedshiftServerlessWorkgroup:
+    Type: AWS::RedshiftServerless::Workgroup
+    Properties:
+      WorkgroupName: !Sub ${UseCaseName}-workgroup
+      NamespaceName: !Ref AWSRedshiftServerlessNamespace
+      BaseCapacity: 4               # Cost-efficient baseline capacity (2-4 = low cost)
+      EnhancedVpcRouting: true
+      PubliclyAccessible: false
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet3
+      SecurityGroupIds:
+        - !Ref RedshiftServerlessSecurityGroup
+      ConfigParameters:
+        - ParameterKey: enable_user_activity_logging
+          ParameterValue: "true"
+      Tags:
+        - Key: Name
+          Value: !Sub ${UseCaseName}
+
+  # --------------------------------------------------------------------------
+  # IAM Managed Policy - Admin access for group users
+  # --------------------------------------------------------------------------
+  AWSRedshiftServerlessAdminPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${UseCaseName}-RedshiftServerlessAdminPolicy
+      Description: Allow Redshift Serverless management and secret access
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: "AllowRedshiftQueryEditorV2"
+            Effect: "Allow"
+            Action:
+              - "redshift-serverless:ListWorkgroups"
+              - "redshift-serverless:GetWorkgroup"
+              - "redshift-serverless:UpdateWorkgroup"
+              - "redshift-serverless:ListNamespaces"
+              - "redshift-serverless:GetNamespace"
+              - "redshift-serverless:UpdateNamespace"
+              - "redshift-serverless:GetCredentials"
+              - "redshift-serverless:GetEndpointAccess"
+              - "redshift-serverless:ListSnapshots"
+              - "sqlworkbench:GetUserInfo"
+              - "sqlworkbench:GetAccountInfo"
+              - "sqlworkbench:GetAccountSettings"
+              - "sqlworkbench:GetUserWorkspaceSettings"
+              - "sqlworkbench:ListConnections"
+              - "sqlworkbench:CreateConnection"
+              - "sqlworkbench:UpdateConnection"
+              - "sqlworkbench:DeleteConnection"
+              - "sqlworkbench:TagResource"
+              - "sqlworkbench:ListQueryExecutionHistory"
+              - "sqlworkbench:ListTabs"
+              - "sqlworkbench:CreateSavedQuery"
+              - "sqlworkbench:DeleteSavedQuery"
+              - "sqlworkbench:GenerateSession"
+              - "sqlworkbench:DriverExecute"
+              - "sqlworkbench:ListRedshiftClusters"
+              - "sqlworkbench:GetQueryExecutionHistory"
+              - "sqlworkbench:ListTaggedResources"
+              - "sqlworkbench:GetAutocompletionMetadata"
+              - "sqlworkbench:GetAutocompletionResource"
+            Resource: "*"
+
+          - Sid: "DataAPIPermissions"
+            Effect: "Allow"
+            Action:
+              - "redshift-data:ExecuteStatement"
+              - "redshift-data:CancelStatement"
+              - "redshift-data:ListStatements"
+              - "redshift-data:GetStatementResult"
+              - "redshift-data:DescribeStatement"
+              - "redshift-data:ListSchemas"
+              - "redshift-data:ListTables"
+              - "redshift-data:DescribeTable"
+            Resource: "*"
+
+          - Sid: "AllowQueryEditorManagedSecrets"
+            Effect: "Allow"
+            Action:
+              - "secretsmanager:CreateSecret"
+              - "secretsmanager:UpdateSecret"
+              - "secretsmanager:GetSecretValue"
+              - "secretsmanager:DescribeSecret"
+              - "secretsmanager:TagResource"
+              - "secretsmanager:PutResourcePolicy"
+              - "secretsmanager:DeleteSecret"
+            Resource: "arn:aws:secretsmanager:us-east-1:969385807621:secret:sqlworkbench!*"
+
+          - Sid: "AllowUserDatabaseSecretRead"
+            Effect: "Allow"
+            Action:
+              - "secretsmanager:GetSecretValue"
+              - "secretsmanager:DescribeSecret"
+            Resource: !Ref AWSRedshiftServerlessSecret
+
+          - Sid: "DenyRedshiftDeletes"
+            Effect: "Deny"
+            Action:
+              - "redshift-serverless:DeleteNamespace"
+              - "redshift-serverless:DeleteWorkgroup"
+            Resource: "*"
+      Groups: 
+        - !Ref UserGroupName
+#      Tags:
+#        - Key: Name
+#          Value: !Sub ${UseCaseName}
+
+
+  # --------------------------------------------------------------------------
+  # IAM Role for Lambda Access to Redshift Serverless
+  # --------------------------------------------------------------------------
+#  AWSLsLambdaRedshiftServerlessRole:
+#    Type: AWS::IAM::Role
+#    Properties:
+#      RoleName: AWSLsLambdaRedshiftServerlessRole
+#      AssumeRolePolicyDocument:
+#        Version: '2012-10-17'
+#        Statement:
+#          - Effect: Allow
+#            Principal:
+#              Service: lambda.amazonaws.com
+#            Action: sts:AssumeRole
+#      ManagedPolicyArns:
+#        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+#      Policies:
+#        - PolicyName: LambdaRedshiftServerlessAccess
+#          PolicyDocument:
+#            Version: '2012-10-17'
+#            Statement:
+#              - Effect: Allow
+#                Action:
+#                  - secretsmanager:GetSecretValue
+#                  - secretsmanager:DescribeSecret
+#                Resource: !Ref AWSLsServerlessSecret
+#              - Effect: Allow
+#                Action:
+#                  - redshift-serverless:GetCredentials
+#                  - redshift-data:ExecuteStatement
+#                  - redshift-data:GetStatementResult
+#                  - redshift-data:DescribeStatement
+#                Resource: "*"
+#              - Effect: Allow
+#                Action:
+#                  - logs:CreateLogGroup
+#                  - logs:CreateLogStream
+#                  - logs:PutLogEvents
+#                Resource: "*"

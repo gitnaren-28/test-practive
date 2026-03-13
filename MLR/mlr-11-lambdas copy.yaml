@@ -1,0 +1,524 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: MLR Lambda Functions Stack 
+
+Parameters:
+  UseCaseName:
+    Type: String
+    Default: mlr
+  LambdaS3Bucket:
+    Type: String
+    Default: mlr-lambda-code
+    Description: S3 bucket containing Lambda code
+  RedshiftWorkgroupName:
+    Type: String
+    Default: mlr-workgroup
+    Description: Redshift Serverless workgroup name
+  RedshiftDatabase:
+    Type: String
+    Default: mlr_db
+    Description: Redshift database name
+
+Resources:
+
+  ########################################
+  # IAM Roles for Lambda Execution
+  ########################################
+
+  DeltaDetectorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${UseCaseName}-delta-detector-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DeltaDetectorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+
+                Resource: !Sub 'arn:aws:s3:::${LambdaS3Bucket}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UseCaseName}*'
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${UseCaseName}*'
+
+  SupervisorAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${UseCaseName}-supervisor-agent-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SupervisorAgentPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${UseCaseName}*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeAgent
+                Resource: !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent/*'
+
+  ReferenceAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${UseCaseName}-reference-agent-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ReferenceAgentPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${UseCaseName}*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeAgent
+                Resource: !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent/*'
+
+  ContentAnalysisAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${UseCaseName}-content-analysis-agent-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ContentAnalysisAgentPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${UseCaseName}*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeAgent
+                Resource: !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent/*'
+
+  ComplianceAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${UseCaseName}-compliance-agent-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ComplianceAgentPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${UseCaseName}*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeAgent
+                Resource: !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent/*'
+
+  QualityAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${UseCaseName}-quality-agent-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: QualityAgentPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${UseCaseName}*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeAgent
+                Resource: !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent/*'
+
+  AggregateAgentsResultsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${UseCaseName}-aggregate-agents-results-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  RiskAnalysisAgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${UseCaseName}-risk-analysis-agent-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: RiskAnalysisPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub 'arn:aws:s3:::${LambdaS3Bucket}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UseCaseName}*'
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${UseCaseName}*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeAgent
+                Resource: !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:agent/*'
+              - Effect: Allow
+                Action:
+                  - redshift-data:ExecuteStatement
+                  - redshift-data:DescribeStatement
+                  - redshift-data:GetStatementResult
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - redshift-serverless:GetCredentials
+                Resource: !Sub 'arn:aws:redshift-serverless:${AWS::Region}:${AWS::AccountId}:workgroup/${RedshiftWorkgroupName}'
+
+  UploadDocumentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${UseCaseName}-upload-document-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: UploadDocumentPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub 'arn:aws:s3:::${LambdaS3Bucket}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UseCaseName}*'
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${UseCaseName}*'
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource: !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${UseCaseName}*'
+
+  KpiApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${UseCaseName}-kpi-api-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: KpiApiPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub 'arn:aws:s3:::${LambdaS3Bucket}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UseCaseName}*'
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${UseCaseName}*'
+              - Effect: Allow
+                Action:
+                  - redshift-data:ExecuteStatement
+                  - redshift-data:DescribeStatement
+                  - redshift-data:GetStatementResult
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - redshift-serverless:GetCredentials
+                Resource: !Sub 'arn:aws:redshift-serverless:${AWS::Region}:${AWS::AccountId}:workgroup/${RedshiftWorkgroupName}'
+
+  GetAgentFindingsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${UseCaseName}-get-agent-findings-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: GetAgentFindingsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub 'arn:aws:s3:::${LambdaS3Bucket}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UseCaseName}*'
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${UseCaseName}*'
+
+  ########################################
+  # Lambda Functions
+  ########################################
+
+  DeltaDetector:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-delta-detector'
+      Runtime: python3.11
+      Handler: mlr-delta-detector.lambda_handler
+      Role: !GetAtt DeltaDetectorRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: mlr-delta-detector.zip
+
+  SupervisorAgent:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-supervisor-agent'
+      Runtime: python3.11
+      Handler: mlr-supervisor-agent.lambda_handler
+      Role: !GetAtt SupervisorAgentRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: mlr-supervisor-agent.zip
+
+  ReferenceAgent:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-reference-agent'
+      Runtime: python3.11
+      Handler: mlr-reference-agent.lambda_handler
+      Role: !GetAtt ReferenceAgentRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: mlr-reference-agent.zip
+
+  ContentAnalysisAgent:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-content-analysis-agent'
+      Runtime: python3.11
+      Handler: mlr-content-analysis-agent.lambda_handler
+      Role: !GetAtt ContentAnalysisAgentRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: mlr-content-analysis-agent.zip
+
+  ComplianceAgent:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-compliance-agent'
+      Runtime: python3.11
+      Handler: mlr-compliance-agent.lambda_handler
+      Role: !GetAtt ComplianceAgentRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: mlr-compliance-agent.zip
+
+  QualityAgent:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-quality-agent'
+      Runtime: python3.11
+      Handler: mlr-quality-agent.lambda_handler
+      Role: !GetAtt QualityAgentRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: mlr-quality-agent.zip
+
+  AggregateAgentsResults:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-aggregate-agents-results'
+      Runtime: python3.11
+      Handler: mlr-aggregate-agents-results.lambda_handler
+      Role: !GetAtt AggregateAgentsResultsRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: mlr-aggregate-agents-results.zip
+
+  RiskAnalysisAgent:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-risk-analysis-agent'
+      Runtime: python3.11
+      Handler: mlr-risk-analysis-agent.lambda_handler
+      Role: !GetAtt RiskAnalysisAgentRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: mlr-risk-analysis-agent.zip
+
+  UploadDocument:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-upload-document'
+      Runtime: python3.11
+      Handler: mlr-upload-document.lambda_handler
+      Role: !GetAtt UploadDocumentRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: mlr-upload-document.zip
+
+  KpiApi:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-kpi-api'
+      Runtime: python3.11
+      Handler: mlr-kpi-api.lambda_handler
+      Role: !GetAtt KpiApiRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: mlr-kpi-api.zip
+
+  GetAgentFindings:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${UseCaseName}-get-agent-findings'
+      Runtime: python3.11
+      Handler: mlr-get-agent-findings.lambda_handler
+      Role: !GetAtt GetAgentFindingsRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: mlr-get-agent-findings.zip
+
+Outputs:
+  DeltaDetectorArn:
+    Value: !GetAtt DeltaDetector.Arn
+  SupervisorAgentArn:
+    Value: !GetAtt SupervisorAgent.Arn
+  ReferenceAgentArn:
+    Value: !GetAtt ReferenceAgent.Arn
+  ContentAnalysisAgentArn:
+    Value: !GetAtt ContentAnalysisAgent.Arn
+  ComplianceAgentArn:
+    Value: !GetAtt ComplianceAgent.Arn
+  QualityAgentArn:
+    Value: !GetAtt QualityAgent.Arn
+  AggregateAgentsResultsArn:
+    Value: !GetAtt AggregateAgentsResults.Arn
+  RiskAnalysisAgentArn:
+    Value: !GetAtt RiskAnalysisAgent.Arn
+  UploadDocumentArn:
+    Value: !GetAtt UploadDocument.Arn
+  KpiApiArn:
+    Value: !GetAtt KpiApi.Arn
+  GetAgentFindingsArn:
+    Value: !GetAtt GetAgentFindings.Arn

@@ -1,0 +1,176 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Step Function for workflow execution dynamodb and lambda
+
+Parameters:
+  UseCaseName:
+    Type: String
+    Default: mlr
+
+  GroupName:
+    Type: String
+    Default: MLR-user-group
+
+Resources:
+  StepDynamoDB:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${UseCaseName}_steps_workflow_db
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: step_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: step_id
+          KeyType: HASH
+
+  ### IAM Role for Lambdas ###
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${UseCaseName}StepFnLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${UseCaseName}LambdaBasicPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource: "*"
+
+  ### CallDecision Lambda ###
+  StepsLambda2:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${UseCaseName}-StepsLambda2
+      Runtime: python3.10
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+
+          def handler(event, context):
+              print("StepsLambda2 input:", event)
+
+              decision = "APPROVED" if event.get("equipmentResult", {}).get("success") else "REJECTED"
+
+              return {
+                  "decision": decision,
+                  "timestamp": context.aws_request_id
+              }
+
+  ### NEW Lambda: Risk Analysis Agent ###
+  RiskAnalysisAgent:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${UseCaseName}-risk-analysis-agent
+      Runtime: python3.10
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+
+          def handler(event, context):
+              print("StepsLambda2 input:", event)
+
+              decision = "APPROVED" if event.get("equipmentResult", {}).get("success") else "REJECTED"
+
+              return {
+                  "decision": decision,
+                  "timestamp": context.aws_request_id
+              }
+
+  StepFunctionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${UseCaseName}StepFunctionExecutionRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${UseCaseName}StepFunctionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StepDynamoDB}
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt StepsLambda2.Arn
+                  - !GetAtt RiskAnalysisAgent.Arn
+
+  WorkflowStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub ${UseCaseName}WorkflowStateMachine
+      RoleArn: !GetAtt StepFunctionExecutionRole.Arn
+      StateMachineType: STANDARD
+      DefinitionString: !Sub |
+        {
+          "StartAt": "StepsLambda2",
+          "States": {
+            "StepsLambda2": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${StepsLambda2}",
+                "Payload.$": "$"
+              },
+              "ResultPath": "$.decisionResult",
+              "Next": "RiskAnalysisAgent"
+            },
+
+            "RiskAnalysisAgent": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${RiskAnalysisAgent}",
+                "Payload.$": "$"
+              },
+              "ResultPath": "$.riskResult",
+              "End": true
+            }
+          }
+        }
+
+  WorkflowUserGroupPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName:  !Sub ${UseCaseName}-AllowRunStepFunction
+      Groups:
+        - !Ref GroupName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - states:StartExecution
+              - states:Describe*
+              - states:ListExecutions
+              - states:StopExecution
+              - states:TestState
+              - states:UpdateStateMachine
+            Resource: !Ref WorkflowStateMachine

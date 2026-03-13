@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: HTTP API Gateway with GET /agent-findings integrated to Lambda
+
+Parameters:
+  UseCaseName:
+    Type: String
+    Default: mlr
+    Description: "Name of the Use Case being developed"
+
+  ApiName:
+    Type: String
+    Default: agent-findings
+    Description: Name of the HTTP API
+
+  StageName:
+    Type: String
+    Default: v1
+    Description: Deployment stage name
+
+  LambdaFunctionName:
+    Type: String
+    Default: mlr-get-agent-findings
+    Description: Name of the existing Lambda function
+
+Resources:
+
+  # HTTP API
+  AgentFindingsHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub ${UseCaseName}-${ApiName}
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+        MaxAge: 86400
+
+  # Lambda Integration
+  AgentFindingsIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref AgentFindingsHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunctionName}
+      PayloadFormatVersion: "2.0"
+
+  # Route: GET /agent-findings
+  AgentFindingsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref AgentFindingsHttpApi
+      RouteKey: "GET /agent-findings"
+      Target: !Join ['/', ['integrations', !Ref AgentFindingsIntegration]]
+
+  # Stage (v1 default)
+  AgentFindingsStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref AgentFindingsHttpApi
+      StageName: !Ref StageName
+      AutoDeploy: true
+
+  # Permission for API Gateway to invoke Lambda
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaFunctionName
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${AgentFindingsHttpApi}/*/GET/agent-findings
+
+Outputs:
+
+  ApiId:
+    Description: HTTP API ID
+    Value: !Ref AgentFindingsHttpApi
+
+  ApiEndpoint:
+    Description: Base endpoint URL
+    Value: !GetAtt AgentFindingsHttpApi.ApiEndpoint
+
+  AgentFindingsInvokeURL:
+    Description: Full invoke URL for GET /agent-findings
+    Value: !Sub ${AgentFindingsHttpApi.ApiEndpoint}/${StageName}/agent-findings

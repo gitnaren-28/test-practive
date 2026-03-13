@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VPC and Subnet for use case.
+
+Parameters:
+  UseCaseName:
+    Type: String
+    Description: "Name of the Use Case being developed"
+
+Resources:
+  PubPrivateVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      Tags:
+        - Key: Name
+          Value: !Ref UseCaseName
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PubPrivateVPC
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Ref UseCaseName
+  
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PubPrivateVPC
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Ref UseCaseName      
+  
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PubPrivateVPC
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.0.3.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Ref UseCaseName      
+  
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PubPrivateVPC
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: 10.0.4.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Ref UseCaseName      
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PubPrivateVPC
+      AvailabilityZone: !Select [2, !GetAZs ""]
+      CidrBlock: 10.0.5.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Ref UseCaseName      
+
+
+Outputs:
+  OutVPCID:
+    Description: VPC
+    Value: !Ref PubPrivateVPC
+
+  OutSubnet1:
+    Description: Public Subnet1
+    Value: !Ref PublicSubnet1
+
+  OutSubnet2:
+    Description: Public Subnet2
+    Value: !Ref PublicSubnet2
+
+  OutSubnet3:
+    Description: Private Subnet1
+    Value: !Ref PrivateSubnet1
+
+  OutSubnet4:
+    Description: Private Subnet2
+    Value: !Ref PrivateSubnet2
+
+  OutSubnet5:
+    Description: Private Subnet3
+    Value: !Ref PrivateSubnet3

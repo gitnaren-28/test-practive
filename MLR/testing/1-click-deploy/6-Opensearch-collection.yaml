@@ -1,0 +1,111 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: OpenSearch Serverless collection with required policies
+
+Parameters:
+  UseCaseName:
+    Type: String
+    Description: "Name of the Use Case being developed"
+
+
+Resources:
+
+  ############################################
+  #  ENCRYPTION POLICY (REQUIRED)
+  ############################################
+  EncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub ${UseCaseName}-encryptionpolicy
+      Type: encryption
+      Description: Encryption policy for OpenSearch Serverless collection
+      Policy: !Sub |
+        {
+          "Rules": [
+            {
+              "ResourceType": "collection",
+              "Resource": ["collection/${UseCaseName}-rag-collection"]
+            }
+          ],
+          "AWSOwnedKey": true
+        }
+
+  ############################################
+  #  NETWORK POLICY (REQUIRED)
+  ############################################
+  NetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub ${UseCaseName}-networkpolicy
+      Type: network
+      Description: Network access policy for collection
+      Policy: !Sub |
+        [
+          {
+            "Rules": [
+              {
+                "ResourceType": "collection",
+                "Resource": ["collection/${UseCaseName}-rag-collection"]
+              }
+            ],
+            "AllowFromPublic": true
+          }
+        ]
+
+  ############################################
+  #  DATA ACCESS POLICY (REQUIRED)
+  ############################################
+  DataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Properties:
+      Name: !Sub ${UseCaseName}-data-accesspolicy
+      Type: data
+      Description: Data access permissions for users/roles
+      Policy: !Sub |
+        [
+          {
+            "Rules": [
+              {
+                "ResourceType": "collection",
+                "Resource": ["collection/${UseCaseName}-rag-collection"],
+                "Permission": [
+                  "aoss:*"
+                ]
+              },
+              {
+                "ResourceType": "index",
+                "Resource": ["index/${UseCaseName}-rag-collection/*"],
+                "Permission": [
+                  "aoss:*"
+                ]
+              }
+            ],
+            "Principal": ["arn:aws:iam::969385807621:user/Shresth.P","arn:aws:iam::969385807621:user/Nikhil.Patil"]
+          }
+        ]
+
+  ############################################
+  #  COLLECTION
+  ############################################
+  AOSSCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    Properties:
+      Name: !Sub ${UseCaseName}-collection
+      Type: VECTORSEARCH
+      Description: Search collection
+    DependsOn:
+      - EncryptionPolicy
+      - NetworkPolicy
+      - DataAccessPolicy
+
+Outputs:
+  CollectionName:
+    Description: Name of the OpenSearch Serverless collection
+    Value: !Ref AOSSCollection
+
+  CollectionArn:
+    Description: ARN of the created OpenSearch Serverless collection
+    Value: !GetAtt AOSSCollection.Arn
+
+  DashboardUrl:
+    Description: Console URL to collection dashboard
+    Value: !Sub "https://console.aws.amazon.com/aos/home#/opensearch/serverless/collections/${AOSSCollection}"

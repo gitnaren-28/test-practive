@@ -1,0 +1,286 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Step Function for workflow execution dynamodb and lambda
+
+Parameters:
+  UseCaseName:
+    Type: String
+    Default: mlr
+
+  GroupName:
+    Type: String
+    Default: MLR-user-group
+
+
+
+Resources:
+  StepDynamoDB:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${UseCaseName}_steps_workflow_db
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: step_id
+          AttributeType: S          
+      KeySchema:
+        - AttributeName: step_id
+          KeyType: HASH
+
+  ### IAM Role for Lambdas ###
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${UseCaseName}StepFnLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${UseCaseName}LambdaBasicPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource: "*"
+
+
+  ### CallEquipment Lambda ###
+  StepsLambda1:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${UseCaseName}-StepsLambda1
+      Runtime: python3.10
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+
+          def handler(event, context):
+              print("StepsLambda1 input:", event)
+              
+              return {
+                  "status": "EQUIPMENT_CALLED",
+                  "equipmentResult": {
+                      "equipmentId": event.get("equipmentId", "EQ-123"),
+                      "success": True
+                  }
+              }
+
+  ### CallDecision Lambda ###
+  StepsLambda2:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${UseCaseName}-StepsLambda2
+      Runtime: python3.10
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+
+          def handler(event, context):
+              print("StepsLambda2 input:", event)
+
+              decision = "APPROVED" if event.get("equipmentResult", {}).get("success") else "REJECTED"
+
+              return {
+                  "decision": decision,
+                  "timestamp": context.aws_request_id
+              }
+
+  StepFunctionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${UseCaseName}StepFunctionExecutionRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${UseCaseName}StepFunctionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StepDynamoDB}
+
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt StepsLambda1.Arn
+                  - !GetAtt StepsLambda2.Arn
+
+                  
+
+  WorkflowStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub ${UseCaseName}WorkflowStateMachine
+      RoleArn: !GetAtt StepFunctionExecutionRole.Arn
+      StateMachineType: STANDARD
+      DefinitionString: !Sub |
+        {
+          "StartAt": "FetchWorkflow",
+          "States": {
+            "FetchWorkflow": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:getItem",
+              "Parameters": {
+                "TableName": "${StepDynamoDB}",
+                "Key": {
+                  "workflowId": {
+                    "S.$": "$.workflow_id"
+                  }
+                }
+              },
+              "ResultPath": "$.workflow",
+              "Next": "ParseSteps"
+            },
+
+            "ParseSteps": {
+              "Type": "Pass",
+              "Parameters": {
+                "steps.$": "$.workflow.Item.steps.L"
+              },
+              "ResultPath": "$.parsed",
+              "Next": "ExecuteSteps"
+            },
+
+            "ExecuteSteps": {
+              "Type": "Map",
+              "ItemsPath": "$.parsed.steps",
+              "ItemProcessor": {
+                "ProcessorConfig": {
+                  "Mode": "INLINE"
+                },
+                "StartAt": "StepsLambda1",
+                "States": {
+                  "StepsLambda1": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${StepsLambda1}",
+                      "Payload.$": "$"
+                    },
+                    "ResultPath": "$.equipmentResult",
+                    "Next": "StepsLambda2"
+                  },
+
+                  "StepsLambda2": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${StepsLambda2}",
+                      "Payload.$": "$"
+                    },
+                    "ResultPath": "$.decisionResult",
+                    "End": true
+                  }
+                }
+              },
+              "End": true
+            }
+          }
+        }
+
+  WorkflowUserGroupPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName:  !Sub ${UseCaseName}-AllowRunStepFunction
+      Groups:
+        - !Ref GroupName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - states:StartExecution
+              - states:Describe*
+              - states:ListExecutions
+              - states:StopExecution
+              - states:TestState
+              - states:UpdateStateMachine
+            Resource: !Ref WorkflowStateMachine
+
+          - Effect: Allow
+            Action:
+              - states:List*
+            Resource: "*"
+
+          - Effect: Allow
+            Action:
+              - lambda:List*
+            Resource: "*"
+
+          - Effect: Allow  
+            Action:
+              - lambda:CreateFunction
+              - lambda:UpdateFunctionCode
+              - lambda:InvokeFunction
+              - lambda:ListFunctions
+              - lambda:GetFunction
+              - lambda:GetFunctionConfiguration
+              - lambda:ListAliases
+              - lambda:ListVersionsByFunction
+              - lambda:CreateEventSourceMapping
+              - lambda:UpdateFunctionConfiguration
+              - lambda:UpdateFunctionUrlConfig
+              - lambda:PublishVersion
+              - lambda:RemovePermission
+              - lambda:GetPolicy
+              - lambda:AddPermission           
+            Resource: "arn:aws:lambda:us-east-1:969385807621:function:mlr*"
+
+
+          
+          - Effect: Allow
+            Action:
+              - dynamodb:PutItem
+              - dynamodb:UpdateItem
+              - dynamodb:GetItem
+              - dynamodb:Query
+              - dynamodb:Scan
+              - dynamodb:DeleteItem
+              - dynamodb:BatchWriteItem
+              - dynamodb:DescribeTable
+            Resource: 
+              - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StepDynamoDB}"
+              - !Sub "arn:aws:dynamodb:us-east-1:${AWS::AccountId}:table/${StepDynamoDB}/index/*"       
+
+          - Effect: Allow
+            Action:
+              - dynamodb:List*
+            Resource: "*"
+
+
+          - Effect: Allow
+            Action:
+              - logs:*
+              - cloudwatch:Get*
+            Resource: "*"                   
+
+Outputs:
+  StateMachineArn:
+    Value: !Ref WorkflowStateMachine
+  StepsLambda1Arn:
+    Value: !GetAtt StepsLambda1.Arn
+  StepsLambda2Arn:
+    Value: !GetAtt StepsLambda2.Arn

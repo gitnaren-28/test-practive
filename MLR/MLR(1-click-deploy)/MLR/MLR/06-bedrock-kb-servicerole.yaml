@@ -1,0 +1,79 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template for Amazon Bedrock Knowledge Base for approved medical materials.
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: S3 bucket containing data.
+    Default: "mlr-data-source"
+
+  S3Prefix:
+    Type: String
+    Description: The S3 prefix (folder path) within the bucket.
+    Default: "data/"
+
+  UseCaseName:
+    Type: String
+    Default: mlr
+    Description: "Name of the Use Case being developed"
+
+
+Resources:
+  BedrockKnowledgeBaseServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+      Policies:
+        - PolicyName: !Sub ${UseCaseName}BedrockKnowledgeBaseS3Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource:
+                  - !Sub "arn:aws:s3:::${BucketName}*"
+                  - !Sub "arn:aws:s3:::${BucketName}/${S3Prefix}*"
+                  - !Sub "arn:aws:s3:::${BucketName}/transform/*"
+                  - !Sub "arn:aws:s3:::mlr-kb-supplemental-storage*"
+                  - !Sub "arn:aws:s3:::mlr-kb-supplemental-storage/*"
+                  - !Sub "arn:aws:s3:::mlr-lambda-transformation-storage*"
+                  - !Sub "arn:aws:s3:::mlr-lambda-transformation-storage/*"
+
+              - Effect: Allow
+                Action:
+                  - bedrock:*
+                Resource: "*"
+
+              - Effect: Allow
+                Action:
+                  - bedrock-agentcore:*
+                Resource: "*"
+
+              - Effect: Allow
+                Action:
+                  - aoss:*
+                Resource: "*"
+
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: "arn:aws:lambda:us-east-1:969385807621:function:mlr*"
+
+Outputs:
+  KnowledgeBaseServiceRoleARN:
+    Description: "Service Role Arn for Bedrock Knowledge Base"
+    Value: !GetAtt BedrockKnowledgeBaseServiceRole.Arn
+  KnowledgeBaseServiceRole:
+    Description: "Service Role for Amazon Bedrock Knowledge Base"
+    Value: !Ref BedrockKnowledgeBaseServiceRole
+
