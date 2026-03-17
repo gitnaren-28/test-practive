@@ -6,3 +6,4 @@ phases:
       - echo "Starting build..."
       - chmod +x hello.sh   #make script to executable :-)
       - ./hello.sh
+      - ./Namaste.sh
