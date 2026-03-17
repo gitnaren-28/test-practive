@@ -4,7 +4,6 @@ phases:
   build:
     commands:
       - echo "Starting build..."
-      - chmod +x hello.sh   #make script to executable :-)
-      - chomd +x Namaste.sh
+      - chmod +x *.sh
       - ./hello.sh
       - ./Namaste.sh
