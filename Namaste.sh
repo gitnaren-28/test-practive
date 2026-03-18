@@ -1,3 +1,3 @@
 #!/bin/bash
 
-echo "Namaste" 
+echo "Namaste from India" 
